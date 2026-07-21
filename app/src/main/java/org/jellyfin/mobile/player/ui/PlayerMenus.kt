@@ -56,6 +56,7 @@ class PlayerMenus(
     private val qualityButton: View by playerControlsBinding::qualityButton
     private val decoderButton: View by playerControlsBinding::decoderButton
     private val infoButton: View by playerControlsBinding::infoButton
+    private val danmakuButton: View by playerControlsBinding::danmakuButton
     private val playbackInfo: TextView by playerBinding::playbackInfo
     private val audioStreamsMenu: PopupMenu = createAudioStreamsMenu()
     private val subtitlesMenu: PopupMenu = createSubtitlesMenu()
@@ -145,6 +146,9 @@ class PlayerMenus(
         }
         infoButton.setOnClickListener {
             playbackInfo.isVisible = !playbackInfo.isVisible
+        }
+        danmakuButton.setOnClickListener {
+            fragment.onDanmakuButtonClicked()
         }
         playbackInfo.setOnClickListener {
             dismissPlaybackInfo()

@@ -36,7 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.mobile.BuildConfig
 import org.jellyfin.mobile.R
-import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.app.PLAYER_EVENT_CHANNEL
 import org.jellyfin.mobile.player.interaction.PlayerEvent
 import org.jellyfin.mobile.player.interaction.PlayerLifecycleObserver
@@ -102,7 +101,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val hlsSegmentApi: HlsSegmentApi = apiClient.hlsSegmentApi
     private val userApi: UserApi = apiClient.userApi
 
-    private val appPreferences: AppPreferences by inject()
     private val lifecycleObserver = PlayerLifecycleObserver(this)
     private val audioManager: AudioManager by lazy { getApplication<Application>().getSystemService()!! }
     val notificationHelper: PlayerNotificationHelper by lazy { PlayerNotificationHelper(this) }
@@ -230,14 +228,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
      */
     fun setupPlayer() {
         @Suppress("MagicNumber")
-        val loadControl = when (appPreferences.exoPlayerNetworkBuffer) {
-            Constants.NETWORK_BUFFER_LARGE -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
+        val loadControl = run {
+            // ExoPlayer 的缓冲分配在 Java 堆上：取应用堆上限的 70% 作为缓冲内存预算（最高 1GB）。
+            // largeHeap 下多数设备堆为 512MB~1GB，即预算约 358~716MB，避免 OOM。
+            val targetBufferBytes = (Runtime.getRuntime().maxMemory() * 7 / 10)
+                .coerceAtMost(1_073_741_824L)
+                .toInt()
+            // backbuffer 与前向缓冲共享同一内存预算，达到字节上限后会停止继续加载；
+            // 若 backbuffer 过长，高码率（如 50Mbps 蓝光原盘 ≈ 6250 字节/毫秒）时
+            // 已播放内容会占满预算、饿死前向缓冲导致卡缓冲。
+            // 因此按 50Mbps 最坏情况给 backbuffer 预留 1/3 预算（约 19~38 秒）。
+            val backBufferMs = (targetBufferBytes / 3 / 6_250).coerceAtMost(300_000)
+            DefaultLoadControl.Builder()
+                // 前向缓冲目标 10~20 分钟；与内存预算相比先到者为准（默认内存限制优先）
+                .setBufferDurationsMs(600_000, 1_200_000, 2_500, 5_000)
+                .setBackBuffer(backBufferMs, false)
+                .setTargetBufferBytes(targetBufferBytes)
                 .build()
-            Constants.NETWORK_BUFFER_EXTRA_LARGE -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(80_000, 240_000, 5_000, 10_000)
-                .build()
-            else -> DefaultLoadControl()
         }
         val renderersFactory = DefaultRenderersFactory(getApplication()).apply {
             setEnableDecoderFallback(true) // Fallback only works if initialization fails, not decoding at playback time
