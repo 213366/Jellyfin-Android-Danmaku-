@@ -42,6 +42,7 @@ import org.jellyfin.mobile.player.interaction.PlayOptions
 import org.jellyfin.mobile.player.interaction.PlayerWebPreferences
 import org.jellyfin.mobile.player.ui.playermenuhelper.PlayerMenuHelper
 import org.jellyfin.mobile.utils.AndroidVersion
+import org.jellyfin.mobile.webapp.WebViewFragment
 import org.jellyfin.mobile.utils.BackPressInterceptor
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.Constants.DEFAULT_CONTROLS_TIMEOUT_MS
@@ -221,6 +222,18 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
         viewModel.queueManager.currentMediaSource.value?.let { mediaSource ->
             danmakuController?.onMediaSourceChanged(mediaSource)
         }
+
+        // Enter immersive mode immediately (hide system bars).
+        // The official flow waits for the web app's ChangeFullscreen event, which
+        // does not fire in desktop/cast mode, leaving the status bar on top and
+        // swallowing clicks in the top region (player controls cannot be shown).
+        playerFullscreenHelper.enableFullscreen()
+
+        // Hide the underlying web UI while the player is active.
+        // In desktop/cast mode touches can pass through to the web view below and
+        // trigger other videos' play buttons, interrupting playback. Hiding the web
+        // view removes those click targets (auto-play-next is queue logic, unaffected).
+        parentFragmentManager.fragments.firstOrNull { it is WebViewFragment }?.view?.visibility = View.GONE
 
         // Set controller timeout
         suppressControllerAutoHide(false)
@@ -457,6 +470,9 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
         // Tear down danmaku
         danmakuController?.destroy()
         danmakuController = null
+
+        // Restore the underlying web UI
+        parentFragmentManager.fragments.firstOrNull { it is WebViewFragment }?.view?.visibility = View.VISIBLE
 
         // Set binding references to null
         _playerBinding = null
