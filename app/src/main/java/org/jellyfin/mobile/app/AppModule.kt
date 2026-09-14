@@ -35,6 +35,8 @@ import org.jellyfin.mobile.downloads.DownloadQueue
 import org.jellyfin.mobile.downloads.DownloadsViewModel
 import org.jellyfin.mobile.downloads.FileDownloader
 import org.jellyfin.mobile.events.ActivityEventHandler
+import org.jellyfin.mobile.player.danmaku.DandanplayClient
+import org.jellyfin.mobile.player.danmaku.DanmakuPreferences
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
 import org.jellyfin.mobile.player.interaction.PlayerEvent
 import org.jellyfin.mobile.player.mediasegments.MediaSegmentRepository
@@ -98,6 +100,10 @@ val applicationModule = module {
     single { DeviceProfileBuilder(get()) }
     single { QualityOptionsProvider() }
     single { MediaSegmentRepository() }
+
+    // Danmaku
+    single { DanmakuPreferences(androidApplication()) }
+    single { DandanplayClient(get()) }
 
     // ExoPlayer factories
     single<DatabaseProvider> {

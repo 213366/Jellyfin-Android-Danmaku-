@@ -37,6 +37,7 @@ import org.jellyfin.mobile.databinding.ExoPlayerControlViewBinding
 import org.jellyfin.mobile.databinding.FragmentPlayerBinding
 import org.jellyfin.mobile.player.PlayerException
 import org.jellyfin.mobile.player.PlayerViewModel
+import org.jellyfin.mobile.player.danmaku.DanmakuController
 import org.jellyfin.mobile.player.interaction.PlayOptions
 import org.jellyfin.mobile.player.interaction.PlayerWebPreferences
 import org.jellyfin.mobile.player.ui.playermenuhelper.PlayerMenuHelper
@@ -75,6 +76,7 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
     private val toolbar: Toolbar get() = playerControlsBinding.toolbar
     private val fullscreenSwitcher: ImageButton get() = playerControlsBinding.fullscreenSwitcher
     private var playerMenus: PlayerMenus? = null
+    private var danmakuController: DanmakuController? = null
 
     private lateinit var playerFullscreenHelper: PlayerFullscreenHelper
     lateinit var playerLockScreenHelper: PlayerLockScreenHelper
@@ -131,6 +133,7 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
             // Update title and player menus
             toolbar.title = mediaSource.getName(requireContext())
             playerMenus?.onQueueItemChanged(mediaSource, viewModel.queueManager.hasNext())
+            danmakuController?.onMediaSourceChanged(mediaSource)
         }
 
         // Handle fragment arguments, extract playback options and start playback
@@ -207,6 +210,17 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
 
         // Create playback menus
         playerMenus = PlayerMenus(this, playerBinding, playerControlsBinding)
+
+        // Setup danmaku overlay: move it into the PlayerView's overlay,
+        // so that it renders above the video but below the playback controls
+        val danmakuView = playerBinding.danmakuView
+        (danmakuView.parent as? ViewGroup)?.removeView(danmakuView)
+        playerView.overlayFrameLayout?.addView(danmakuView)
+        danmakuView.positionProvider = { viewModel.playerOrNull?.currentPosition ?: 0L }
+        danmakuController = DanmakuController(requireContext(), danmakuView, viewLifecycleOwner.lifecycleScope)
+        viewModel.queueManager.currentMediaSource.value?.let { mediaSource ->
+            danmakuController?.onMediaSourceChanged(mediaSource)
+        }
 
         // Set controller timeout
         suppressControllerAutoHide(false)
@@ -357,6 +371,10 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
         viewModel.updateDecoderType(type)
     }
 
+    fun onDanmakuButtonClicked() {
+        danmakuController?.showSettings()
+    }
+
     fun onSkipToPrevious() {
         viewModel.skipToPrevious()
     }
@@ -435,6 +453,10 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
         super.onDestroyView()
         // Detach player from PlayerView
         playerView.player = null
+
+        // Tear down danmaku
+        danmakuController?.destroy()
+        danmakuController = null
 
         // Set binding references to null
         _playerBinding = null
