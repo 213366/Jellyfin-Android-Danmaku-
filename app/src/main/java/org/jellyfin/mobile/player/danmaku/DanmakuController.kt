@@ -151,7 +151,14 @@ class DanmakuController(
         preferences.getSavedEpisode(episodeKey)?.let { saved -> return saved }
 
         val animeName = buildAnimeName(item) ?: return null
+        // 回退0：手动匹配过本番后，用记忆的番剧标题再搜一次。
+        // 某些标题带季号/别名时按原名搜不到（如"正相反的你和我2"需搜"相反的你"），
+        // 手动匹配保存的标题是已验证可搜到的关键词，之后本季剧集都能自动匹配。
+        val savedAnime = preferences.getSavedAnime(animeKey)
         var results = client.searchEpisodes(preferences.apiBaseUrl, animeName)
+        if (results.isEmpty() && savedAnime != null && savedAnime.second != animeName) {
+            results = client.searchEpisodes(preferences.apiBaseUrl, savedAnime.second)
+        }
 
         // 回退1：尝试用系列的原始标题搜索
         if (results.isEmpty()) {
@@ -180,7 +187,6 @@ class DanmakuController(
         if (results.isEmpty()) return null
 
         // 优先使用记忆的番剧
-        val savedAnime = preferences.getSavedAnime(animeKey)
         val animeIdx = savedAnime
             ?.let { (animeId, _) -> results.indexOfFirst { anime -> anime.animeId == animeId } }
             ?.takeIf { idx -> idx >= 0 }
@@ -193,7 +199,22 @@ class DanmakuController(
         val standardEps = filterStandardEpisodes(anime.episodes)
         val mainEpisodes = if (standardEps.isNotEmpty()) standardEps else anime.episodes
 
-        // 处理弹幕库不从第 1 话开始的情况（与 ede.js 一致）
+        // 精确匹配优先：按剧集标题里的集号（第N话）直接匹配当前集号，
+        // 避免弹幕库缺集/编号不连续时位置换算偏移（与 Jellyfin 的 SxxExx 集号对齐）
+        val exactEpisode = mainEpisodes.firstOrNull { ep ->
+            EPISODE_NUMBER_REGEX.find(ep.episodeTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() == episodeIndex
+        }
+        if (exactEpisode != null) {
+            val exactMatch = SavedDanmakuMatch(
+                episodeId = exactEpisode.episodeId,
+                animeTitle = anime.animeTitle,
+                episodeTitle = exactEpisode.episodeTitle,
+            )
+            preferences.saveEpisode(episodeKey, exactMatch)
+            return exactMatch
+        }
+
+        // 位置换算回退：弹幕库不从第 1 话开始等情况（与 ede.js 一致）
         val firstStandard = findFirstStandardEpisode(mainEpisodes)
         val initialEp = firstStandard
             ?.let { EPISODE_NUMBER_REGEX.find(it.episodeTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() }
