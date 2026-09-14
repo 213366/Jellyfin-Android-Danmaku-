@@ -48,6 +48,22 @@ git push --force-with-lease origin danmaku
 - 签名：**密钥与密码不在本仓库中**。签名属性（`keystore.file` / `keystore.password` / `signing.key.alias` / `signing.key.password`）放在 `GRADLE_USER_HOME/gradle.properties`（本机为 `%USERPROFILE%\.gradle\gradle.properties`），密钥文件放在仓库外的 `keys/` 目录。
 - ⚠️ 2026-09-15 已轮换密钥：**旧的 1.0.0 / 1.1.0 安装包与新版本签名不同，必须先卸载旧版再安装 1.1.1**（会丢失 Jellyfin 登录状态与弹幕匹配记忆）。
 
+## 发布 (Release)
+
+每次跟版出包后，在 GitHub 上发一个 release：
+
+| 项 | 值 |
+| --- | --- |
+| tag | `v<版本号>`，与 `gradle.properties` 的 `jellyfin.version` 一致 |
+| 目标分支 | `danmaku` |
+| 标题 | `Danmaku Jellyfin Android v<版本> (弹幕版)` |
+| 附件 | `danmaku-jellyfin-v<版本>.apk`（proprietary release） |
+| 说明 | 双语，含本版跟版记录；**若签名有变化，必须在说明里写明"先卸载旧版再安装"** |
+
+已发布：`v1.0.0`（2026-07-21，指向 `main`）、`v1.1.1`（2026-09-15，指向 `danmaku`，签名已轮换）。
+
+发布用的是仓库 owner 的 GitHub OAuth 凭据（本机由 Git 凭据管理器保存），调用 REST API 完成；没有安装 `gh` CLI，用 `Invoke-RestMethod` 即可，无需额外配置。
+
 ## 已知冲突热点
 
 | 文件 | 原因 |
