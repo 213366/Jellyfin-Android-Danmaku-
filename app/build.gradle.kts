@@ -31,6 +31,7 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
+        applicationId = "org.jellyfin.mobile.danmaku"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionName = project.getVersionName()
@@ -122,7 +123,7 @@ android {
     }
 }
 
-base.archivesName.set("jellyfin-android-v${project.getVersionName()}")
+base.archivesName.set("danmaku-jellyfin-v${project.getVersionName()}")
 
 dependencies {
     val proprietaryImplementation by configurations

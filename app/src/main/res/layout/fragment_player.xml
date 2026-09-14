@@ -22,6 +22,12 @@
         android:importantForAccessibility="no"
         android:foreground="@drawable/ripple_background" />
 
+    <org.jellyfin.mobile.player.danmaku.DanmakuView
+        android:id="@+id/danmaku_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+
     <FrameLayout
         android:id="@+id/player_overlay"
         android:layout_width="match_parent"
