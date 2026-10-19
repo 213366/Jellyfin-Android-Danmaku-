@@ -1,5 +1,6 @@
 import io.gitlab.arturbosch.detekt.Detekt
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.app)
@@ -26,6 +27,17 @@ kotlin {
     }
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val misakaApiBase = (
+    localProperties.getProperty("misaka.api.base")
+        ?: System.getenv("MISAKA_API_BASE")
+        ?: ""
+    ).trim()
+val misakaApiBaseLiteral = "\"" + misakaApiBase.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "org.jellyfin.mobile"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -38,6 +50,7 @@ android {
         versionCode = getVersionCode(versionName!!)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("String", "MISAKA_API_BASE_URL", misakaApiBaseLiteral)
     }
 
     signingConfigs {

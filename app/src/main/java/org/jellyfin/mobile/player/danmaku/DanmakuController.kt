@@ -33,8 +33,7 @@ import kotlin.math.max
  *
  * 功能与设置项对齐 jellyfin-danmaku (ede.js)：
  * 自动/手动匹配、时间轴偏移、透明度/字号/速度/显示区域、
- * 类型过滤、来源过滤、密度限制、防重叠、简繁转换、
- * 服务端 XML 弹幕（jellyfin-plugin-danmu）、自定义 API 地址。
+ * 类型过滤、来源过滤、密度限制、防重叠、简繁转换、自定义 API 地址。
  */
 @Suppress("TooManyFunctions", "TooGenericExceptionCaught")
 class DanmakuController(
@@ -44,11 +43,12 @@ class DanmakuController(
 ) : KoinComponent {
 
     private val preferences: DanmakuPreferences by inject()
-    private val client: DandanplayClient by inject()
+    private val client: MisakaClient by inject()
     private val apiClient: ApiClient = get()
 
     private var currentItemId: UUID? = null
     private var currentItem: BaseItemDto? = null
+    private var currentFileName: String? = null
     private var animeKey: String? = null
     private var episodeKey: String? = null
     private var episodeIndex: Int = 1
@@ -70,6 +70,7 @@ class DanmakuController(
         loadJob?.cancel()
         currentItemId = mediaSource.itemId
         currentItem = mediaSource.item
+        currentFileName = resolveFileName(mediaSource)
         rawComments = emptyList()
         currentMatch = null
         danmakuView.clear()
@@ -96,33 +97,10 @@ class DanmakuController(
     // ---- 加载流程 ----
 
     private fun reload(showToast: Boolean = true) {
-        val itemId = currentItemId ?: return
+        if (currentItemId == null) return
         loadJob?.cancel()
         loadJob = scope.launch {
             try {
-                // 优先使用服务端弹幕插件提供的 XML 弹幕
-                if (preferences.useXmlDanmaku) {
-                    val baseUrl = apiClient.baseUrl
-                    if (baseUrl != null) {
-                        val xmlComments = client.getPluginXmlComments(
-                            serverBaseUrl = baseUrl,
-                            itemId = itemId.toString(),
-                            accessToken = apiClient.accessToken,
-                        )
-                        if (!xmlComments.isNullOrEmpty()) {
-                            rawComments = xmlComments
-                            currentMatch = SavedDanmakuMatch(
-                                episodeId = -1,
-                                animeTitle = context.getString(R.string.danmaku_source_server_xml),
-                                episodeTitle = "",
-                            )
-                            applyProcessedComments()
-                            notifyLoaded()
-                            return@launch
-                        }
-                    }
-                }
-
                 val match = autoMatch()
                 if (match == null) {
                     if (showToast) context.toast(R.string.danmaku_no_match)
@@ -149,6 +127,12 @@ class DanmakuController(
 
         // 匹配记忆优先
         preferences.getSavedEpisode(episodeKey)?.let { saved -> return saved }
+
+        // misaka 推荐路径：按文件名匹配，命中后无需作品已入库
+        matchByFileName()?.let { match ->
+            preferences.saveEpisode(episodeKey, match)
+            return match
+        }
 
         val animeName = buildAnimeName(item) ?: return null
         // 回退0：手动匹配过本番后，用记忆的番剧标题再搜一次。
@@ -241,6 +225,57 @@ class DanmakuController(
     }
 
     /**
+     * 依次尝试真实文件名和「剧名 - 集号」构造名。
+     * misaka 的 match 对罗马音/英文文件名最敏感，构造名用于拿不到媒体路径时兜底。
+     */
+    private suspend fun matchByFileName(): SavedDanmakuMatch? {
+        val item = currentItem ?: return null
+        val candidates = buildList {
+            currentFileName?.takeIf(String::isNotBlank)?.let(::add)
+            buildMatchFileName(item)?.let { name -> if (name !in this) add(name) }
+        }
+
+        for (fileName in candidates) {
+            val match = client.match(preferences.apiBaseUrl, fileName) ?: continue
+            return SavedDanmakuMatch(
+                episodeId = match.episodeId,
+                animeTitle = match.animeTitle,
+                episodeTitle = match.episodeTitle,
+            )
+        }
+        return null
+    }
+
+    private fun buildMatchFileName(item: BaseItemDto): String? {
+        val title = item.seriesName ?: item.name ?: return null
+        val episodeIndex = item.indexNumber
+        return if (episodeIndex != null) {
+            "$title - ${episodeIndex.toString().padStart(2, '0')}.mkv"
+        } else {
+            "$title.mkv"
+        }
+    }
+
+    private fun resolveFileName(mediaSource: JellyfinMediaSource): String? {
+        val candidates = sequenceOf(
+            mediaSource.item?.path,
+            mediaSource.item?.mediaSources?.firstOrNull()?.path,
+            mediaSource.sourceInfo.path,
+        )
+        return candidates
+            .mapNotNull(::toFileName)
+            .firstOrNull { name -> name !in GENERIC_STREAM_NAMES }
+    }
+
+    private fun toFileName(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        val cleanPath = path.substringBefore('?').substringBefore('#').trimEnd('/')
+        val name = cleanPath.substringAfterLast('/').substringAfterLast('\\')
+        if (name.isBlank() || !name.contains('.')) return null
+        return name
+    }
+
+    /**
      * 智能选择弹幕匹配的番剧，优先级：
      * 1. 季号匹配 —— animeTitle 包含对应季号表述（如"第2季"、"2期"）
      * 2. 剧集覆盖 —— episode 列表能覆盖当前集号的优先
@@ -249,7 +284,7 @@ class DanmakuController(
      */
     @Suppress("ReturnCount")
     private fun selectBestAnime(
-        results: List<DandanplayClient.AnimeResult>,
+        results: List<MisakaClient.AnimeResult>,
         item: BaseItemDto,
         searchKey: String,
     ): Int? {
@@ -467,7 +502,7 @@ class DanmakuController(
         }
     }
 
-    private fun showAnimeSelectDialog(results: List<DandanplayClient.AnimeResult>) {
+    private fun showAnimeSelectDialog(results: List<MisakaClient.AnimeResult>) {
         val titles = results
             .map { anime -> "${anime.animeTitle}（${anime.typeDescription}）" }
             .toTypedArray()
@@ -478,12 +513,12 @@ class DanmakuController(
             .show()
     }
 
-    private fun showEpisodeSelectDialog(anime: DandanplayClient.AnimeResult) {
+    private fun showEpisodeSelectDialog(anime: MisakaClient.AnimeResult) {
         if (anime.episodes.isEmpty()) {
             context.toast(R.string.danmaku_no_match)
             return
         }
-        val titles = anime.episodes.map(DandanplayClient.EpisodeResult::episodeTitle).toTypedArray()
+        val titles = anime.episodes.map(MisakaClient.EpisodeResult::episodeTitle).toTypedArray()
         AlertDialog.Builder(context)
             .setTitle(R.string.danmaku_select_episode)
             .setItems(titles) { _, which -> onManualMatchSelected(anime, anime.episodes[which]) }
@@ -491,7 +526,7 @@ class DanmakuController(
             .show()
     }
 
-    private fun onManualMatchSelected(anime: DandanplayClient.AnimeResult, episode: DandanplayClient.EpisodeResult) {
+    private fun onManualMatchSelected(anime: MisakaClient.AnimeResult, episode: MisakaClient.EpisodeResult) {
         val animeKey = animeKey ?: return
         val episodeKey = episodeKey ?: return
         preferences.saveAnime(animeKey, anime.animeId, anime.animeTitle)
@@ -532,7 +567,6 @@ class DanmakuController(
 
         // 记录进入时需要「重新拉取」的设置，关闭时对比
         val initialChConvert = preferences.chConvert
-        val initialUseXml = preferences.useXmlDanmaku
         val initialCustomApi = preferences.customApiBaseUrl
         val initialSourceFilter = preferences.sourceFilter
         val initialModeFilter = preferences.modeFilter
@@ -650,7 +684,6 @@ class DanmakuController(
 
             // 其他开关
             danmakuAntiOverlapSwitch.isChecked = preferences.antiOverlap
-            danmakuUseXmlSwitch.isChecked = preferences.useXmlDanmaku
             danmakuCustomApiInput.setText(preferences.customApiBaseUrl)
 
             dialog.setOnDismissListener {
@@ -677,7 +710,6 @@ class DanmakuController(
                 preferences.densityLimit = densityButtons.indexOfFirst { button -> button.isChecked }.coerceAtLeast(0)
                 preferences.chConvert = chButtons.indexOfFirst { button -> button.isChecked }.coerceAtLeast(0)
                 preferences.antiOverlap = danmakuAntiOverlapSwitch.isChecked
-                preferences.useXmlDanmaku = danmakuUseXmlSwitch.isChecked
                 preferences.customApiBaseUrl = danmakuCustomApiInput.text.toString()
 
                 val offset = danmakuOffsetValue.text.toString().toDoubleOrNull() ?: initialOffset
@@ -685,8 +717,11 @@ class DanmakuController(
 
                 applyViewConfig()
 
+                if (preferences.customApiBaseUrl != initialCustomApi) {
+                    preferences.clearMatchMemory()
+                }
+
                 val needsRefetch = preferences.chConvert != initialChConvert ||
-                    preferences.useXmlDanmaku != initialUseXml ||
                     preferences.customApiBaseUrl != initialCustomApi
                 val needsReprocess = preferences.sourceFilter != initialSourceFilter ||
                     preferences.modeFilter != initialModeFilter ||
@@ -732,6 +767,7 @@ class DanmakuController(
         /** 匹配标准剧集标题格式：第X话、第X話、第X集（允许空格） */
         private val EPISODE_NUMBER_REGEX = Regex("""第\s*(\d+)\s*[话話集]""")
         private val SEASON_INDICATOR_REGEX = Regex("""第\s*\d+\s*季|\d+期|Season\s+\d+""", RegexOption.IGNORE_CASE)
+        private val GENERIC_STREAM_NAMES = setOf("stream.mp4", "stream.mkv", "video.mp4", "playlist.m3u8")
         private const val OFFSET_STEP_SECONDS = 0.5
         private const val MAX_PERCENT = 100
         private const val MIN_OPACITY_PERCENT = 10
@@ -741,7 +777,7 @@ class DanmakuController(
     /**
      * 从剧集列表中找出第一个标准格式的剧集（跳过 Preview/Special/Credit 等非正片）
      */
-    private fun findFirstStandardEpisode(episodes: List<DandanplayClient.EpisodeResult>): DandanplayClient.EpisodeResult? {
+    private fun findFirstStandardEpisode(episodes: List<MisakaClient.EpisodeResult>): MisakaClient.EpisodeResult? {
         return episodes.firstOrNull { ep ->
             EPISODE_NUMBER_REGEX.containsMatchIn(ep.episodeTitle)
         }
@@ -750,7 +786,7 @@ class DanmakuController(
     /**
      * 过滤出标准格式的正片剧集列表（排除 Preview/Special/Credit 等）
      */
-    private fun filterStandardEpisodes(episodes: List<DandanplayClient.EpisodeResult>): List<DandanplayClient.EpisodeResult> {
+    private fun filterStandardEpisodes(episodes: List<MisakaClient.EpisodeResult>): List<MisakaClient.EpisodeResult> {
         return episodes.filter { ep ->
             EPISODE_NUMBER_REGEX.containsMatchIn(ep.episodeTitle)
         }
