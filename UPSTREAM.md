@@ -25,6 +25,7 @@
 
 | 日期 | 上游基线 | 产品版本 | 产物 | 结果 |
 | --- | --- | --- | --- | --- |
+| 2026-10-20 | `upstream/master` `3e660a84`（2026-10-16） | 1.2.2 | `danmaku-jellyfin-v1.2.2-personal.apk`（29.4 MB，`7D1FB25B98E67565`）/ `danmaku-jellyfin-v1.2.2-public.apk`（29.4 MB，`4AC6A770E9A3BD67`） | rebase 最新上游（33 个提交，7 个非翻译）；public 不含 Token；两套 release 编译、签名通过 |
 | 2026-10-20 | `upstream/master` `90400b5b`（2026-09-13） | 1.2.1 | `danmaku-jellyfin-v1.2.1-personal.apk`（29.3 MB，`6C184C15A6BF1E3B`）/ `danmaku-jellyfin-v1.2.1-public.apk`（29.3 MB，`29EAB3D8D896BB58`） | 新增 personal/public 构建变体；public 不含 Token 并带首次配置，personal 由 `local.properties` 预注入；两套 release 均编译、签名通过 |
 | 2026-10-20 | `upstream/master` `90400b5b`（2026-09-13） | 1.2.0 | `danmaku-jellyfin-v1.2.0.apk`（29.3 MB，SHA-256 前 16 位 `05CFB068894995D9`） | 弹幕源切换为自建 misaka（`match` + `comment`），移除 dandanplay/服务端 XML 分支；`assembleProprietaryRelease` 通过 |
 | 2026-09-15 | `upstream/master` `90400b5b`（2026-09-13） | 1.1.1 | `danmaku-jellyfin-v1.1.1.apk`（28.0 MB，SHA-256 前 16 位 `109149D5D0C325C5`） | rebase 成功，`assembleProprietaryRelease` 通过；签名密钥已轮换 |
@@ -49,7 +50,7 @@ git push --force-with-lease origin danmaku
   - personal：`app/build/outputs/apk/proprietaryPersonal/release/danmaku-jellyfin-v<版本>-proprietary-personal-release.apk`
   - public：`app/build/outputs/apk/proprietaryPublic/release/danmaku-jellyfin-v<版本>-proprietary-public-release.apk`
 - 口味：使用 **proprietary**（含 Chromecast 支持），与线上 1.0.0 一致。
-- 版本号：`gradle.properties` 的 `jellyfin.version`（当前 `v1.2.1`）。
+- 版本号：`gradle.properties` 的 `jellyfin.version`（当前 `v1.2.2`）。
 - 构建变体：
   - `personal`：`applicationId=org.jellyfin.mobile.danmaku`，从 `local.properties` 的 `misaka.api.base`（或环境变量 `MISAKA_API_BASE`）注入 Token。**只在本机使用，不提交、不上传公开 Release。**
   - `public`：`applicationId=org.jellyfin.mobile.danmaku.public`，`MISAKA_API_BASE_URL` 固定为空；首次播放时弹配置框，用户填写自己的 misaka 地址和 Token。可以公开分发。
