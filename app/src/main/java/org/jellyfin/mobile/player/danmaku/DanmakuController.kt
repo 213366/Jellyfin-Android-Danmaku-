@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.mobile.R
+import org.jellyfin.mobile.databinding.DialogDanmakuApiSetupBinding
 import org.jellyfin.mobile.databinding.DialogDanmakuSettingsBinding
 import org.jellyfin.mobile.player.source.JellyfinMediaSource
 import org.jellyfin.mobile.utils.toast
@@ -56,6 +57,7 @@ class DanmakuController(
     private var currentMatch: SavedDanmakuMatch? = null
     private var loadJob: Job? = null
     private var settingsDialog: BottomSheetDialog? = null
+    private var apiSetupDialog: AlertDialog? = null
 
     init {
         applyViewConfig()
@@ -92,12 +94,18 @@ class DanmakuController(
         loadJob?.cancel()
         settingsDialog?.dismiss()
         settingsDialog = null
+        apiSetupDialog?.dismiss()
+        apiSetupDialog = null
     }
 
     // ---- 加载流程 ----
 
     private fun reload(showToast: Boolean = true) {
         if (currentItemId == null) return
+        if (preferences.apiBaseUrl.isBlank()) {
+            showApiSetupDialog()
+            return
+        }
         loadJob?.cancel()
         loadJob = scope.launch {
             try {
@@ -273,6 +281,82 @@ class DanmakuController(
         val name = cleanPath.substringAfterLast('/').substringAfterLast('\\')
         if (name.isBlank() || !name.contains('.')) return null
         return name
+    }
+
+    /**
+     * public 版没有内置 misaka 地址时，在首次播放前要求配置。
+     * 支持两种输入：服务器地址 + Token，或直接粘贴包含 /api/v1/{token} 的完整地址。
+     */
+    private fun showApiSetupDialog() {
+        if (apiSetupDialog?.isShowing == true) return
+
+        val binding = DialogDanmakuApiSetupBinding.inflate(LayoutInflater.from(context))
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(R.string.danmaku_api_setup_title)
+            .setView(binding.root)
+            .setPositiveButton(R.string.danmaku_api_save, null)
+            .setNeutralButton(R.string.danmaku_api_test, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        apiSetupDialog = dialog
+
+        dialog.setOnDismissListener {
+            apiSetupDialog = null
+        }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val base = resolveApiBase(binding) ?: return@setOnClickListener
+                preferences.customApiBaseUrl = base
+                preferences.clearMatchMemory()
+                dialog.dismiss()
+                reload()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val base = resolveApiBase(binding) ?: return@setOnClickListener
+                val testButton = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                binding.danmakuApiSetupStatus.setText(R.string.danmaku_api_testing)
+                testButton.isEnabled = false
+                scope.launch {
+                    val version = client.getVersion(base)
+                    withContext(Dispatchers.Main) {
+                        if (!dialog.isShowing) return@withContext
+                        binding.danmakuApiSetupStatus.text = if (version != null) {
+                            context.getString(R.string.danmaku_api_test_ok, version)
+                        } else {
+                            context.getString(R.string.danmaku_api_test_failed)
+                        }
+                        testButton.isEnabled = true
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun resolveApiBase(binding: DialogDanmakuApiSetupBinding): String? {
+        val server = binding.danmakuApiServerInput.text.toString().trim().trimEnd('/')
+        val token = binding.danmakuApiTokenInput.text.toString().trim()
+        val base = when {
+            server.isBlank() -> null
+            server.contains("/api/v1/") -> server
+            token.isNotBlank() -> "$server/api/v1/$token"
+            else -> null
+        }
+        if (base == null) {
+            binding.danmakuApiSetupStatus.setText(
+                if (server.isNotBlank() && token.isBlank()) {
+                    R.string.danmaku_api_token_required
+                } else {
+                    R.string.danmaku_api_invalid
+                },
+            )
+            return null
+        }
+        if (!base.startsWith("http://") && !base.startsWith("https://")) {
+            binding.danmakuApiSetupStatus.setText(R.string.danmaku_api_invalid)
+            return null
+        }
+        return base
     }
 
     /**
