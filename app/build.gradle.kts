@@ -50,7 +50,6 @@ android {
         versionCode = getVersionCode(versionName!!)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
-        buildConfigField("String", "MISAKA_API_BASE_URL", misakaApiBaseLiteral)
     }
 
     signingConfigs {
@@ -90,6 +89,7 @@ android {
     }
 
     flavorDimensions += "variant"
+    flavorDimensions += "distribution"
     productFlavors {
         register("libre") {
             dimension = "variant"
@@ -99,6 +99,16 @@ android {
             dimension = "variant"
             buildConfigField("boolean", "IS_PROPRIETARY", "true")
             isDefault = true
+        }
+        register("personal") {
+            dimension = "distribution"
+            isDefault = true
+            buildConfigField("String", "MISAKA_API_BASE_URL", misakaApiBaseLiteral)
+        }
+        register("public") {
+            dimension = "distribution"
+            applicationIdSuffix = ".public"
+            buildConfigField("String", "MISAKA_API_BASE_URL", "\"\"")
         }
     }
 
